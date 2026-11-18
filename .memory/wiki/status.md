@@ -2,6 +2,15 @@
 
 > 追加式：新快照加在最上面，旧快照保留作历史。每条带日期与核实方式。
 
+## 2026-11-18 — Fork 与 dev 分支推送（核实方式：gh api + git log + push 输出）
+
+- Fork 已创建：`shadowinlife/LightRAG`（remote 名 `fork`；`origin` 仍为 HKUDS/LightRAG）。
+- 本地分支 `dev`（基于 main @ 264b00ebf），提交 `08602a85e` "docs: add development memory layer"：`.memory/` 全部 11 个文件 + `GLOSSARY.md` + `AGENTS.md`（Memory maintenance 等本地改动）。
+- 提交作者/提交者均为 `shadowinlife <shadowinlife@gmail.com>`（仓库级 git config）；gh 登录账号 shadowinlife，推送经 gh credential helper。
+- `dev -> fork/dev` fast-forward 推送成功（fork 原 dev @ a2f4debed 为其祖先，未用 force）；gh api 确认分支头 08602a85e、作者一致。
+- 未纳入分支（保留在工作区）：`opencode.json`、`.omo/`、`CLAUDE.md` 与 `.claude/` 的删除——本地工具链状态，不属于记忆文档。
+- `.git/info/exclude` 的 `.memory/` 忽略条目已移除；记忆文档自此随 `dev` 版本化，`main` 不跟踪。
+
 ## 2026-11-18（初始快照，核实方式：git status / git log / README News）
 
 - 仓库：`HKUDS/LightRAG`（origin = github.com/HKUDS/LightRAG.git），分支 `main`，HEAD `264b00ebf`（Merge PR #4463, fix/issue-4443）。
