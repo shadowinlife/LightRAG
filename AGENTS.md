@@ -189,10 +189,10 @@ bunx tsc --noEmit                  # Typecheck (`bun run build` does NOT typeche
 
 - Use mock-based tests for external services (Redis, httpx, etc.) — do not depend on live services in unit tests.
 - Add regression tests for every bug fix.
-- **Run only the test directories that mirror the modules you changed**, and report which subset you ran plus its pass count. The suite is ~11500 offline tests: about 5 minutes serially, ~70 s with `-n auto` on an 8-core machine — still too slow for the edit loop. Every PR's CI runs the full offline suite (plus `tests/setup/` and, with the real RAGAS stack, `tests/evaluation/` when their inputs change) — proving nothing else broke is its job, not yours.
+- **Run only the test directories that mirror the modules you changed**, and report which subset you ran plus its pass count. The full suite is too slow for the edit loop. Every PR's CI runs the full offline suite (plus `tests/setup/` and, with the real RAGAS stack, `tests/evaluation/` when their inputs change) — proving nothing else broke is its job, not yours.
 - Derive the subset from the mirror layout below: `lightrag/api/config.py` → `tests/api/config/`, `lightrag/kg/redis_impl.py` → `tests/kg/redis_impl/`, `lightrag/chunker/` → `tests/chunker/`. When a change spans several modules, run each of their directories rather than widening to `tests/`.
 - **`tests/setup/` is the setup wizard's suite and runs only when a wizard input changed**: `scripts/setup/**`, `env.example`, `docker-compose*.yml`, `Makefile`, or `tests/setup/` itself. It never imports `lightrag`, so a `lightrag/` change never needs it. `norecursedirs` in `pyproject.toml` already skips it in every recursive run (`pytest`, `pytest tests`, the full suite, CI's main job); run it by naming it: `./scripts/test.sh tests/setup`. The easy one to miss is `env.example`: adding a config knob for `lightrag` usually edits it, and the wizard parses it, so that change runs `tests/setup/` too.
-- Run the full suite locally only at a milestone, or when the change is genuinely cross-cutting (`lightrag/base.py`, `lightrag/utils.py`, `lightrag/kg/shared_storage.py`, or anything every backend inherits). **Run it with `-n auto --dist worksteal`** (pytest-xdist, in the `pytest` extra): on an 8-core machine it cuts ~5 min to ~1 min. CI does not use `-n` because hosted 4-vCPU runners showed no gain; it splits the suite by directory into parallel shard jobs instead (`.github/workflows/tests.yml`, where the shard lists live). Do not add `-n` to subset runs: every worker re-collects and re-imports the suite (~12 s), which costs more than a single directory saves. Drop `-n` when you need `pdb`/`-s` or ordered output.
+- Run the full suite locally only at a milestone, or when the change is genuinely cross-cutting (`lightrag/base.py`, `lightrag/utils.py`, `lightrag/kg/shared_storage.py`, or anything every backend inherits). **Run it with `-n auto --dist worksteal`** (pytest-xdist, in the `pytest` extra). CI does not use `-n` because hosted 4-vCPU runners showed no gain; it splits the suite by directory into parallel shard jobs instead (`.github/workflows/tests.yml`, where the shard lists live). Do not add `-n` to subset runs: every worker re-collects and re-imports the suite, which costs more than a single directory saves. Drop `-n` when you need `pdb`/`-s` or ordered output.
 - Backend tests use pytest; frontend unit tests use Bun's built-in runner — see *WebUI* above and *React component tests* below.
 - **Capturing `lightrag` logs in tests:** the `lightrag` logger sets `propagate = False`, and pytest < 9.1 attaches caplog's handler to the root logger only, so a bare `caplog` captures nothing from it there. The supported floor is `pytest>=8.4.2`, and the lock file's newer pytest hides the failure. Use the `lightrag_caplog` fixture (`tests/conftest.py`) when you need caplog's API, `lightrag_log_records` when you only count or inspect records, or `capture_lightrag_logs` (`tests/_log_capture.py`) inside a helper that receives `caplog`. Never set `propagate = True` in a test: on pytest >= 9.1 every record is then captured twice.
 - **A WebUI change runs the WHOLE frontend check set**, from `lightrag_webui/`: `bun install --frozen-lockfile` (see *WebUI* above — skip it after a branch switch and every later step fails on missing modules), then `bun test`, `bunx tsc --noEmit`, and `bun run lint`. The subsetting rule above is a backend rule and does not apply — all three together take well under a minute (test ~2 s, typecheck ~14 s, lint ~21 s), so there is nothing to save by running less. Report the pass count. `bun run build` transpiles WITHOUT checking types, so skipping `tsc --noEmit` means nothing checks them.
@@ -206,8 +206,8 @@ bunx tsc --noEmit                  # Typecheck (`bun run build` does NOT typeche
 # Run specific test file
 ./scripts/test.sh tests/kg/test_graph_storage.py
 
-# Full suite — ~11500 offline tests; milestones and cross-cutting changes only.
-# Parallel via pytest-xdist: ~70 s on 8 cores (vs ~5 min serial).
+# Full suite — milestones and cross-cutting changes only.
+# Parallel via pytest-xdist.
 # tests/setup is skipped by default (norecursedirs); name it explicitly when
 # scripts/setup/, env.example, docker-compose*.yml or Makefile change.
 ./scripts/test.sh tests -m offline -n auto --dist worksteal
@@ -244,7 +244,7 @@ bunx tsc --noEmit                  # Typecheck (`bun run build` does NOT typeche
 
 **Full guide: [docs/design/WebUITestingGuide.md](docs/design/WebUITestingGuide.md) — read it before writing or converting any test under `lightrag_webui/src/`.**
 
-- Tests are **colocated** next to the module they cover (`src/features/SiteHeader.test.ts`); the `tests/` mirror layout above is a backend rule. A test file containing JSX must be named `.test.tsx`.
+- Tests are **colocated** next to the module they cover (`lightrag_webui/src/features/SiteHeader.test.tsx`); the `tests/` mirror layout above is a backend rule. A test file containing JSX must be named `.test.tsx`.
 - **Run `bun test` from `lightrag_webui/`.** The `bunfig.toml` preload that installs the DOM is resolved against the CWD, and from the repository root the failure is silent — pure logic tests still pass, only component tests break.
 - **Test rendered behavior by rendering it**, through `renderWithProviders` (`src/test/render.tsx`). Do not write new tests that `readFileSync` a `.tsx` and match substrings.
 - **Never assert `toBeNull()` / `not.toBeInTheDocument()` / `toBe(element)` on a DOM node** — Bun serialises the whole happy-dom element and the run appears to HANG instead of failing. Assert a count or an extracted boolean/string instead.
@@ -399,6 +399,15 @@ Two rules are enforced by `tests/test_docstring_budget.py` rather than by review
 - **No source line may cite a GitHub issue number.** The referent does not survive a fork, so a comment saying something is "documented in #NNNN" leaves nothing that documents it. Name the thing instead ("the two-channel fence"), or move the content into `docs/design/` and cite that. Never delete such a reference bare — migrate what it pointed at first. Enforced over `lightrag/` only: **tests may cite issue numbers**, and many do. There the number names the defect the test pins, and the test itself — its name, docstring and assertions — is the documentation, so the reference is provenance rather than the thing carrying the meaning.
 
 A third test requires every `docs/**.md` path named in the package to resolve; nothing imports those strings, so a typo is otherwise silent.
+
+### Memory maintenance
+
+The memory layer is this index, the `docs/design/` contracts, and `GLOSSARY.md` (vocabulary). Update it at these triggers:
+
+- Behavior changed: update the contract it contradicts in the same PR; a new mechanism gets its contract before merge.
+- A term was resolved: add it to `GLOSSARY.md` then — definition only, mechanism stays in the contract.
+- A decision was made (hard to reverse, surprising, real trade-off): record it in the owning contract's accepted residues / rejected remedies, never a parallel `docs/adr/` tree.
+- Drift suspected between instruction files: run the `maintain-agents-md` audit; apply `writing-for-agents` to every edit.
 
 ### Python
 - Follow PEP 8 with 4-space indentation
